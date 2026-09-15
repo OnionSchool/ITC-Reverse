@@ -38,7 +38,7 @@ jobs:
         run: >-
           cmake -S native -B build-win32 -G Ninja
           -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_TOOLCHAIN_FILE=native/toolchains/clang-mingw32.cmake
+          -DCMAKE_TOOLCHAIN_FILE=$PWD/native/toolchains/clang-mingw32.cmake
 
       - name: Build
         run: cmake --build build-win32 --parallel
