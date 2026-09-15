@@ -14,7 +14,7 @@ cmake -S native -B build-win32 -DCMAKE_BUILD_TYPE=Release \
 cmake --build build-win32
 ```
 
-`clang++` 必须在 `PATH` 中；NixOS 可用 `nix shell nixpkgs#clang` 提供。以上路径以两条 `nix build --print-out-paths` 的输出替换，前者是 Windows 头文件和导入库，后者提供 C++ 标准库。CMake 使用 `clang++ --target=i686-w64-windows-gnu`，不使用 GCC 编译。
+`clang++` 必须在 `PATH` 中；NixOS 可用 `nix shell nixpkgs#clang` 提供。以上路径以两条 `nix build --print-out-paths` 的输出替换，前者是 Windows 头文件和导入库，后者提供 C++ 标准库。CMake 使用 `clang++ --target=i686-w64-mingw32`，不使用 GCC 编译。
 
 程序只使用 Windows 7 自带的 Win32、Common Controls 与 Winsock。默认绑定 `127.0.0.1`，管理员可在界面中启动或停止控制服务。配置保存到可执行文件同目录的 `itc-configuration.tsv`。
 

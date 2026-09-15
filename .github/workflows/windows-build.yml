@@ -40,6 +40,11 @@ jobs:
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_TOOLCHAIN_FILE=$PWD/native/toolchains/clang-mingw32.cmake
 
+      - name: Show compiler configuration
+        run: |
+          clang++ --version
+          cmake -LA -N build-win32 | grep -E 'CMAKE_(C|CXX)_COMPILER|CMAKE_SYSROOT'
+
       - name: Build
         run: cmake --build build-win32 --parallel
 
