@@ -29,8 +29,8 @@ jobs:
           msystem: MINGW32
           update: true
           install: >-
-            mingw-w64-clang-i686-cmake
-            mingw-w64-clang-i686-ninja
+            mingw-w64-i686-cmake
+            mingw-w64-i686-ninja
             clang
             mingw-w64-i686-gcc
 
