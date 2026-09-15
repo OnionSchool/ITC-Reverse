@@ -1,0 +1,10 @@
+cmake_minimum_required(VERSION 3.20)
+project(ITCCompat LANGUAGES CXX)
+
+add_executable(ITCCompat WIN32 src/main.cpp)
+target_compile_features(ITCCompat PRIVATE cxx_std_17)
+target_compile_definitions(ITCCompat PRIVATE UNICODE _UNICODE WINVER=0x0601 _WIN32_WINNT=0x0601)
+target_compile_options(ITCCompat PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(ITCCompat PRIVATE comctl32 ws2_32 shell32 ole32 oleaut32)
+target_link_options(ITCCompat PRIVATE -static -static-libgcc -static-libstdc++ -Wl,--dynamicbase,--nxcompat)
+set_target_properties(ITCCompat PROPERTIES WIN32_EXECUTABLE TRUE)

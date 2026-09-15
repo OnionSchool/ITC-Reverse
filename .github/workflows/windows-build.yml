@@ -1,0 +1,57 @@
+name: Build Windows binary
+
+on:
+  push:
+    paths:
+      - native/**
+      - .github/workflows/windows-build.yml
+  pull_request:
+    paths:
+      - native/**
+      - .github/workflows/windows-build.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-win32:
+    name: Windows 7+ x86
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW32
+          update: true
+          install: >-
+            mingw-w64-i686-clang
+            mingw-w64-i686-cmake
+            mingw-w64-i686-ninja
+
+      - name: Configure
+        run: >-
+          cmake -S native -B build-win32 -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_TOOLCHAIN_FILE=native/toolchains/clang-mingw32.cmake
+
+      - name: Build
+        run: cmake --build build-win32 --parallel
+
+      - name: Check imported DLLs
+        run: >-
+          i686-w64-mingw32-objdump -p build-win32/ITCCompat.exe |
+          grep 'DLL Name' |
+          tee build-win32/imported-dlls.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ITCCompat-win32
+          path: |
+            build-win32/ITCCompat.exe
+            build-win32/imported-dlls.txt
+          if-no-files-found: error

@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# CMake and native build output
+/build*/
+/native/build*/
+/native/itc-configuration.tsv
+
+# Local tooling
+.clangd/
+.cache/
+
+# Generated imports and test output
+/legacy-configuration.json
+/itc-import.tsv
