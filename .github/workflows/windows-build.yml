@@ -43,15 +43,16 @@ jobs:
         run: cmake --build build-win32 --parallel
 
       - name: Check imported DLLs
-        run: >-
-          i686-w64-mingw32-objdump -p build-win32/ITCCompat.exe |
-          grep 'DLL Name' |
-          tee build-win32/imported-dlls.txt
+        run: |
+          i686-w64-mingw32-objdump -p build-win32/ITCCompat.exe | grep 'DLL Name' > build-win32/itccompat-imported-dlls.txt
+          i686-w64-mingw32-objdump -p build-win32/ITCCapture.exe | grep 'DLL Name' > build-win32/itccapture-imported-dlls.txt
 
       - uses: actions/upload-artifact@v4
         with:
           name: ITCCompat-win32
           path: |
             build-win32/ITCCompat.exe
-            build-win32/imported-dlls.txt
+            build-win32/ITCCapture.exe
+            build-win32/itccompat-imported-dlls.txt
+            build-win32/itccapture-imported-dlls.txt
           if-no-files-found: error
