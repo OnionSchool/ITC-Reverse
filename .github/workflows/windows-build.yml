@@ -26,12 +26,12 @@ jobs:
 
       - uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW32
+          msystem: CLANG32
           update: true
           install: >-
-            mingw-w64-i686-clang
-            mingw-w64-i686-cmake
-            mingw-w64-i686-ninja
+            mingw-w64-clang-i686-clang
+            mingw-w64-clang-i686-cmake
+            mingw-w64-clang-i686-ninja
 
       - name: Configure
         run: >-
@@ -44,8 +44,8 @@ jobs:
 
       - name: Check imported DLLs
         run: |
-          i686-w64-mingw32-objdump -p build-win32/ITCCompat.exe | grep 'DLL Name' > build-win32/itccompat-imported-dlls.txt
-          i686-w64-mingw32-objdump -p build-win32/ITCCapture.exe | grep 'DLL Name' > build-win32/itccapture-imported-dlls.txt
+          llvm-objdump -p build-win32/ITCCompat.exe | grep 'DLL Name' > build-win32/itccompat-imported-dlls.txt
+          llvm-objdump -p build-win32/ITCCapture.exe | grep 'DLL Name' > build-win32/itccapture-imported-dlls.txt
 
       - uses: actions/upload-artifact@v4
         with:
