@@ -16,9 +16,6 @@
 #include <thread>
 #include <vector>
 
-#pragma comment(lib, "comctl32.lib")
-#pragma comment(lib, "ws2_32.lib")
-
 namespace {
 constexpr int IdTerminalList = 100;
 constexpr int IdAdd = 101;
@@ -68,12 +65,6 @@ std::wstring executable_path() {
   GetModuleFileNameW(nullptr, path, MAX_PATH);
   std::wstring value(path);
   return value.substr(0, value.find_last_of(L"\\/") + 1);
-}
-
-std::wstring trim(std::wstring value) {
-  const auto first = value.find_first_not_of(L" \t\r\n");
-  if (first == std::wstring::npos) return L"";
-  return value.substr(first, value.find_last_not_of(L" \t\r\n") - first + 1);
 }
 
 std::vector<std::wstring> split(const std::wstring& value, wchar_t delimiter) {
@@ -207,7 +198,13 @@ void handle_session(const std::vector<std::string>& fields, SOCKET socket) {
     int priority{}, user_priority{}, type{};
     if (fields.size() != 6 || !parse_number(fields[3], priority) || !parse_number(fields[4], user_priority) || !parse_number(fields[5], type) || priority < 1 || priority > 1000) { send_line(socket, "599 invalid argument\r\n"); return; }
     const int id = g_state.next_session_id++;
-    g_state.sessions[id] = {id, fields[2], priority, user_priority, type};
+    Session session{};
+    session.id = id;
+    session.name = fields[2];
+    session.priority = priority;
+    session.user_priority = user_priority;
+    session.type = type;
+    g_state.sessions[id] = session;
     send_line(socket, "000 " + std::to_string(id) + "\r\n"); return;
   }
   if (action == "list") {
