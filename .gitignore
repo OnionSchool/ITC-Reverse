@@ -15,3 +15,13 @@ __pycache__/
 # Generated imports and test output
 /legacy-configuration.json
 /itc-import.tsv
+
+# Runtime logs and Access lock files from legacy samples
+**/CTNB_DATA/DB_Log.mdb
+**/CTNB_DATA/*.ldb
+
+# Packet captures can contain credentials and media
+/tools/captures/
+*.pcap
+*.pcapng
+*.etl

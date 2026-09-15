@@ -21,3 +21,5 @@ cmake --build build-win32
 “导入旧 Access”通过 Windows 内置的 Jet 4.0 OLE DB 提供程序直接只读访问 MDB，不依赖 `mdb-export.exe`，也不会修改源数据库。为避免 64 位 Access 驱动差异，发布目标固定为 32 位；Windows 7 SP1 通常已包含所需的 Jet 组件。
 
 `.github/workflows/windows-build.yml` 使用 Clang/Mingw-w64 构建静态运行时的 32 位 `ITCCompat.exe`，并作为 `ITCCompat-win32` 构建产物上传。该目标配置为 Windows 7；最终兼容性仍应在 Windows 7 SP1 x86 和 x64 虚拟机各执行一次冒烟测试确认。
+
+控制面已实现静态确认的 `logon`、`quit` 与 `session new/list/terms/set/get/add_term/rm_term/source/playvol/rm` 命令，且仅绑定回环地址。其请求格式、响应文本与状态枚举尚未经过隔离抓包验证，不能视为已与旧客户端或硬件终端互通；TCP 15001、媒体播放、组播转发、实时采播与定时任务仍未实现。

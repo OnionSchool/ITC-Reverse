@@ -1,8 +1,8 @@
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <commctrl.h>
 #include <oleauto.h>
-#include <winsock2.h>
-#include <ws2tcpip.h>
 #include <shellapi.h>
 
 #include <algorithm>
@@ -10,6 +10,7 @@
 #include <cctype>
 #include <fstream>
 #include <map>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -28,14 +29,33 @@ constexpr int IdSave = 105;
 
 struct Terminal { int id{}; std::wstring name; std::wstring address; int volume{80}; std::wstring forward; };
 struct Group { int id{}; std::wstring name; std::vector<int> members; };
+struct Session {
+  int id{};
+  std::string name;
+  int priority{};
+  int user_priority{};
+  int type{};
+  int status{};
+  int play_time{};
+  int total_time{};
+  int program_id{};
+  int play_volume{};
+  std::string source;
+  std::vector<int> terms;
+};
 struct State {
   std::vector<Terminal> terminals;
   std::vector<Group> groups;
+  std::map<int, Session> sessions;
+  int next_session_id{1};
   std::atomic<bool> serving{false};
   std::atomic<bool> stop{false};
   SOCKET control{INVALID_SOCKET};
   SOCKET data{INVALID_SOCKET};
   std::thread worker;
+  std::vector<std::thread> clients;
+  std::vector<SOCKET> client_sockets;
+  std::mutex mutex;
 };
 
 State g_state;
@@ -112,7 +132,127 @@ void load_configuration() {
   }
 }
 
-void send_line(SOCKET socket, const std::string& text) { send(socket, text.c_str(), static_cast<int>(text.size()), 0); }
+bool send_line(SOCKET socket, const std::string& text) {
+  size_t sent = 0;
+  while (sent < text.size()) {
+    const int count = send(socket, text.data() + sent, static_cast<int>(text.size() - sent), 0);
+    if (count <= 0) return false;
+    sent += static_cast<size_t>(count);
+  }
+  return true;
+}
+
+std::vector<std::string> split_command(const std::string& line) {
+  std::vector<std::string> fields;
+  std::istringstream input(line);
+  std::string field;
+  while (input >> field) fields.push_back(field);
+  return fields;
+}
+
+bool parse_number(const std::string& value, int& number) {
+  try { size_t used{}; number = std::stoi(value, &used); return used == value.size(); } catch (...) { return false; }
+}
+
+bool session_and_value(const std::vector<std::string>& fields, size_t index, int& session_id, std::string& value) {
+  if (fields.size() == index + 1) {
+    const size_t comma = fields[index].find(',');
+    if (comma == std::string::npos) return false;
+    value = fields[index].substr(comma + 1);
+    return parse_number(fields[index].substr(0, comma), session_id);
+  }
+  if (fields.size() == index + 2) {
+    value = fields[index + 1];
+    if (!value.empty() && value[0] == ',') value.erase(0, 1);
+    return parse_number(fields[index], session_id);
+  }
+  return false;
+}
+
+Session* session_from(const std::vector<std::string>& fields, size_t index, SOCKET socket) {
+  int id{};
+  if (fields.size() <= index) { send_line(socket, "599 invalid argument\r\n"); return nullptr; }
+  const std::string identifier = fields[index].substr(0, fields[index].find(','));
+  if (!parse_number(identifier, id)) { send_line(socket, "599 invalid argument\r\n"); return nullptr; }
+  const auto found = g_state.sessions.find(id);
+  if (found == g_state.sessions.end()) { send_line(socket, "500 invalid session\r\n"); return nullptr; }
+  return &found->second;
+}
+
+bool set_session_value(Session& session, const std::string& assignment) {
+  const size_t separator = assignment.find('=');
+  if (separator == std::string::npos) return false;
+  std::string key = assignment.substr(0, separator);
+  std::transform(key.begin(), key.end(), key.begin(), ::toupper);
+  const std::string value = assignment.substr(separator + 1);
+  int number{};
+  if (key == "NAME") { session.name = value; return true; }
+  int* target = nullptr;
+  if (key == "STAT") target = &session.status;
+  if (key == "PLAY_TIME") target = &session.play_time;
+  if (key == "TOTAL_TIME") target = &session.total_time;
+  if (key == "PROGRAM_ID") target = &session.program_id;
+  if (key == "PLAYVOL") target = &session.play_volume;
+  if (key == "TYPE") target = &session.type;
+  if (!target || !parse_number(value, number)) return false;
+  *target = number;
+  return true;
+}
+
+void handle_session(const std::vector<std::string>& fields, SOCKET socket) {
+  if (fields.size() < 2) { send_line(socket, "599 unknown sub command.\r\n"); return; }
+  std::string action = fields[1]; std::transform(action.begin(), action.end(), action.begin(), ::tolower);
+  std::lock_guard<std::mutex> lock(g_state.mutex);
+  if (action == "new") {
+    int priority{}, user_priority{}, type{};
+    if (fields.size() != 6 || !parse_number(fields[3], priority) || !parse_number(fields[4], user_priority) || !parse_number(fields[5], type) || priority < 1 || priority > 1000) { send_line(socket, "599 invalid argument\r\n"); return; }
+    const int id = g_state.next_session_id++;
+    g_state.sessions[id] = {id, fields[2], priority, user_priority, type};
+    send_line(socket, "000 " + std::to_string(id) + "\r\n"); return;
+  }
+  if (action == "list") {
+    for (const auto& entry : g_state.sessions) send_line(socket, "000 " + std::to_string(entry.second.id) + "\t" + entry.second.name + "\r\n");
+    send_line(socket, "000 end\r\n"); return;
+  }
+  Session* session = session_from(fields, 2, socket); if (!session) return;
+  if (action == "rm") { g_state.sessions.erase(session->id); send_line(socket, "000 ok\r\n"); return; }
+  if (action == "add_term" || action == "rm_term") {
+    int terminal{};
+    int requested_session{}; std::string terminal_text;
+    if (!session_and_value(fields, 2, requested_session, terminal_text) || requested_session != session->id || !parse_number(terminal_text, terminal)) { send_line(socket, "599 invalid argument\r\n"); return; }
+    auto found = std::find(session->terms.begin(), session->terms.end(), terminal);
+    if (action == "add_term" && found == session->terms.end()) session->terms.push_back(terminal);
+    if (action == "rm_term" && found != session->terms.end()) session->terms.erase(found);
+    send_line(socket, "000 ok\r\n"); return;
+  }
+  if (action == "terms") {
+    for (const int terminal : session->terms) send_line(socket, "000 " + std::to_string(terminal) + "\r\n");
+    send_line(socket, "000 end\r\n"); return;
+  }
+  if (action == "source") {
+    int requested_session{}; std::string source;
+    if (!session_and_value(fields, 2, requested_session, source) || requested_session != session->id) { send_line(socket, "599 invalid argument\r\n"); return; }
+    session->source = source; send_line(socket, "000 ok\r\n"); return;
+  }
+  if (action == "playvol" && fields.size() == 4) {
+    int volume{};
+    if (!parse_number(fields[3], volume)) { send_line(socket, "500 invalid parameter\r\n"); return; }
+    session->play_volume = volume; send_line(socket, "000 ok\r\n"); return;
+  }
+  if (action == "set") {
+    if (fields.size() < 4 || !std::all_of(fields.begin() + 3, fields.end(), [&](const std::string& item) { return set_session_value(*session, item); })) { send_line(socket, "500 invalid parameter\r\n"); return; }
+    send_line(socket, "000 ok\r\n"); return;
+  }
+  if (action == "get" && fields.size() == 4) {
+    std::string key = fields[3]; std::transform(key.begin(), key.end(), key.begin(), ::toupper);
+    if (key == "NAME") { send_line(socket, "000 NAME=" + session->name + "\r\n"); return; }
+    const std::map<std::string, int> values{{"STAT", session->status}, {"PLAY_TIME", session->play_time}, {"TOTAL_TIME", session->total_time}, {"PROGRAM_ID", session->program_id}, {"TYPE", session->type}, {"PLAYVOL", session->play_volume}};
+    const auto found = values.find(key);
+    if (found != values.end()) { send_line(socket, "000 " + key + "=" + std::to_string(found->second) + "\r\n"); return; }
+    send_line(socket, "500 invalid parameter\r\n"); return;
+  }
+  send_line(socket, "599 unknown sub command.\r\n");
+}
 
 void handle_client(SOCKET socket) {
   bool authenticated = false;
@@ -122,26 +262,32 @@ void handle_client(SOCKET socket) {
     const int count = recv(socket, input, sizeof(input), 0);
     if (count <= 0) break;
     buffered.append(input, count);
+    if (buffered.size() > 4096) { send_line(socket, "599 line too long\r\n"); break; }
     size_t end;
     while ((end = buffered.find('\n')) != std::string::npos) {
       std::string line = buffered.substr(0, end);
       buffered.erase(0, end + 1);
       if (!line.empty() && line.back() == '\r') line.pop_back();
-      std::istringstream command(line);
-      std::string verb, ignored, user, password;
-      command >> verb >> ignored >> user >> password;
+      if (line.size() > 4096) { send_line(socket, "599 line too long\r\n"); closesocket(socket); return; }
+      const auto fields = split_command(line);
+      if (fields.empty()) { send_line(socket, "599 unknown command.\r\n"); continue; }
+      std::string verb = fields[0];
       std::transform(verb.begin(), verb.end(), verb.begin(), ::tolower);
-      if (verb == "quit") { send_line(socket, "000 bye\r\n"); closesocket(socket); return; }
+      if (verb == "quit") { send_line(socket, "000 bye\r\n"); return; }
       if (verb == "logon") {
-        if (user != "admin") send_line(socket, "511 invalid user\r\n");
-        else if (password != "admin") send_line(socket, "512 invalid password\r\n");
+        if (fields.size() != 4) send_line(socket, "599 invalid argument\r\n");
+        else if (fields[2] != "admin") send_line(socket, "511 invalid user\r\n");
+        else if (fields[3] != "admin") send_line(socket, "512 invalid password\r\n");
         else { authenticated = true; send_line(socket, "000 ok\r\n"); }
       } else if (!authenticated) send_line(socket, "501 not logon\r\n");
-      else if (verb == "session") send_line(socket, "505 session compatibility is not implemented\r\n");
+      else if (verb == "session") handle_session(fields, socket);
       else send_line(socket, "599 unknown command.\r\n");
     }
   }
   closesocket(socket);
+  std::lock_guard<std::mutex> lock(g_state.mutex);
+  const auto found = std::find(g_state.client_sockets.begin(), g_state.client_sockets.end(), socket);
+  if (found != g_state.client_sockets.end()) g_state.client_sockets.erase(found);
 }
 
 SOCKET listen_port(u_short port) {
@@ -160,7 +306,12 @@ void service_loop() {
   if (WSAStartup(MAKEWORD(2, 2), &data) != 0) { PostMessage(g_window, WM_APP + 1, 0, 0); return; }
   g_state.control = listen_port(8000);
   g_state.data = listen_port(15001);
-  if (g_state.control == INVALID_SOCKET || g_state.data == INVALID_SOCKET) { PostMessage(g_window, WM_APP + 1, 0, 0); WSACleanup(); return; }
+  if (g_state.control == INVALID_SOCKET || g_state.data == INVALID_SOCKET) {
+    if (g_state.control != INVALID_SOCKET) closesocket(g_state.control);
+    if (g_state.data != INVALID_SOCKET) closesocket(g_state.data);
+    g_state.control = g_state.data = INVALID_SOCKET;
+    PostMessage(g_window, WM_APP + 1, 0, 0); WSACleanup(); return;
+  }
   g_state.serving = true;
   PostMessage(g_window, WM_APP + 1, 1, 0);
   while (!g_state.stop) {
@@ -170,11 +321,15 @@ void service_loop() {
     for (SOCKET listener : {g_state.control, g_state.data}) if (FD_ISSET(listener, &sockets)) {
       SOCKET client = accept(listener, nullptr, nullptr);
       if (client == INVALID_SOCKET) continue;
-      if (listener == g_state.data) { send_line(client, "505 data channel is not implemented\r\n"); closesocket(client); }
-      else std::thread(handle_client, client).detach();
+       if (listener == g_state.data) { send_line(client, "505 data channel is not implemented\r\n"); closesocket(client); }
+       else {
+         std::lock_guard<std::mutex> lock(g_state.mutex);
+         g_state.client_sockets.push_back(client);
+         g_state.clients.emplace_back(handle_client, client);
+       }
     }
   }
-  closesocket(g_state.control); closesocket(g_state.data); g_state.control = g_state.data = INVALID_SOCKET; g_state.serving = false; WSACleanup();
+  closesocket(g_state.control); closesocket(g_state.data); g_state.control = g_state.data = INVALID_SOCKET; g_state.serving = false;
 }
 
 void stop_service() {
@@ -182,6 +337,13 @@ void stop_service() {
   if (g_state.control != INVALID_SOCKET) shutdown(g_state.control, SD_BOTH);
   if (g_state.data != INVALID_SOCKET) shutdown(g_state.data, SD_BOTH);
   if (g_state.worker.joinable()) g_state.worker.join();
+  {
+    std::lock_guard<std::mutex> lock(g_state.mutex);
+    for (const SOCKET socket : g_state.client_sockets) shutdown(socket, SD_BOTH);
+  }
+  for (auto& client : g_state.clients) if (client.joinable()) client.join();
+  g_state.clients.clear();
+  WSACleanup();
 }
 
 std::wstring open_file(const wchar_t* filter) {
@@ -328,9 +490,15 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
       if (LOWORD(wparam) == IdDelete) { const int selected = ListView_GetNextItem(g_list, -1, LVNI_SELECTED); if (selected >= 0) { g_state.terminals.erase(g_state.terminals.begin() + selected); refresh_list(); } }
       if (LOWORD(wparam) == IdImport) import_database();
       if (LOWORD(wparam) == IdSave) { save_configuration(); MessageBoxW(window, L"配置已保存。", L"ITC 兼容控制台", MB_OK); }
-      if (LOWORD(wparam) == IdService) { auto button = reinterpret_cast<HWND>(lparam); if (!g_state.serving) { g_state.stop = false; g_state.worker = std::thread(service_loop); SetWindowTextW(button, L"停止控制服务"); } else { stop_service(); SetWindowTextW(button, L"启动控制服务"); } }
+      if (LOWORD(wparam) == IdService) { auto button = reinterpret_cast<HWND>(lparam); if (!g_state.serving) { if (g_state.worker.joinable()) g_state.worker.join(); g_state.stop = false; g_state.worker = std::thread(service_loop); SetWindowTextW(button, L"停止控制服务"); } else { stop_service(); SetWindowTextW(button, L"启动控制服务"); } }
       return 0;
-    case WM_APP + 1: if (!wparam) MessageBoxW(window, L"无法绑定 8000 或 15001 端口。", L"控制服务", MB_ICONERROR); return 0;
+    case WM_APP + 1:
+      if (!wparam) {
+        if (g_state.worker.joinable()) g_state.worker.join();
+        SetWindowTextW(GetDlgItem(window, IdService), L"启动控制服务");
+        MessageBoxW(window, L"无法绑定 8000 或 15001 端口。", L"控制服务", MB_ICONERROR);
+      }
+      return 0;
     case WM_CLOSE: save_configuration(); stop_service(); DestroyWindow(window); return 0;
     case WM_DESTROY: PostQuitMessage(0); return 0;
   }
