@@ -28,4 +28,3 @@ endif()
 
 set(CMAKE_C_FLAGS_INIT "${_clang_mingw_flags}")
 set(CMAKE_CXX_FLAGS_INIT "${_clang_mingw_flags}")
-set(CMAKE_EXE_LINKER_FLAGS_INIT "-fuse-ld=lld")
