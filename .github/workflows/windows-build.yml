@@ -54,8 +54,8 @@ jobs:
 
       - name: Check imported DLLs
         run: |
-          llvm-objdump -p build-win32/ITCCompat.exe | grep 'DLL Name' > build-win32/itccompat-imported-dlls.txt
-          llvm-objdump -p build-win32/ITCCapture.exe | grep 'DLL Name' > build-win32/itccapture-imported-dlls.txt
+          i686-w64-mingw32-objdump -p build-win32/ITCCompat.exe | grep 'DLL Name' > build-win32/itccompat-imported-dlls.txt
+          i686-w64-mingw32-objdump -p build-win32/ITCCapture.exe | grep 'DLL Name' > build-win32/itccapture-imported-dlls.txt
 
       - uses: actions/upload-artifact@v4
         with:
