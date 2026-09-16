@@ -34,12 +34,15 @@ jobs:
             clang
             mingw-w64-i686-gcc
             mingw-w64-i686-binutils
+            mingw-w64-i686-crt
 
       - name: Configure
-        run: >-
-          cmake -S native -B build-win32 -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_TOOLCHAIN_FILE=$PWD/native/toolchains/clang-mingw32.cmake
+        run: |
+          export MINGW_SYSROOT="$(cygpath -m /mingw32)"
+          export MINGW_GCC_TOOLCHAIN="$MINGW_SYSROOT"
+          cmake -S native -B build-win32 -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$PWD/native/toolchains/clang-mingw32.cmake"
 
       - name: Show compiler configuration
         run: |
