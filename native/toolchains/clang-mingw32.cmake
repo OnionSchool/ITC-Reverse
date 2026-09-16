@@ -26,5 +26,10 @@ elseif(EXISTS "/mingw32")
   string(APPEND _clang_mingw_flags " --gcc-toolchain=/mingw32")
 endif()
 
+if("$ENV{MSYSTEM}" STREQUAL "MINGW32")
+  string(APPEND _clang_mingw_flags " -B/mingw32/bin -L/mingw32/lib -L/mingw32/i686-w64-mingw32/lib")
+  set(CMAKE_EXE_LINKER_FLAGS_INIT "-fuse-ld=/mingw32/bin/ld.exe")
+endif()
+
 set(CMAKE_C_FLAGS_INIT "${_clang_mingw_flags}")
 set(CMAKE_CXX_FLAGS_INIT "${_clang_mingw_flags}")
